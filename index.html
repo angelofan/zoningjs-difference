@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>行政区划数据差异分析</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: "#3B82F6",
+              secondary: "#10B981",
+              accent: "#8B5CF6",
+              warning: "#F59E0B",
+              danger: "#EF4444",
+              dark: "#1F2937",
+              light: "#F9FAFB",
+            },
+            fontFamily: {
+              inter: ["Inter", "system-ui", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+    <style type="text/tailwindcss">
+      @layer utilities {
+        .card-shadow {
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+            0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .text-gradient {
+          background-clip: text;
+          -webkit-background-clip: text;
+          color: transparent;
+          background-image: linear-gradient(to right, #3b82f6, #8b5cf6);
+        }
+        .tree-node {
+          cursor: pointer;
+        }
+        .tree-node::before {
+          content: "+ ";
+          display: inline-block;
+          margin-right: 5px;
+        }
+        .tree-node.open::before {
+          content: "- ";
+        }
+        .tree-children {
+          display: none;
+          margin-left: 20px;
+        }
+        .tree-container, .tree-children.open {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          align-items: flex-start;
+        }
+        .tree-children.open:has(> .tag) {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+
+  <body class="font-inter bg-gray-50 text-dark min-h-screen flex flex-col">
+    <!-- 顶部导航 -->
+    <header class="bg-white shadow-md sticky top-0 z-50">
+      <div
+        class="container mx-auto px-4 py-3 flex justify-between items-center"
+      >
+        <div class="flex items-center space-x-2">
+          <i class="fa fa-map-marker text-primary text-2xl"></i>
+          <h1 class="text-xl font-bold text-dark">行政区划数据差异分析</h1>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-8">
+      <!-- 介绍卡片 -->
+      <section class="mb-8 animate-fadeIn">
+        <div class="bg-white rounded-xl card-shadow p-6">
+          <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+            <i class="fa fa-bar-chart text-primary mr-2"></i>
+            分析两个版本的行政区划数据差异
+          </h2>
+          <p class="text-gray-600">
+            此工具可帮助您对比不同版本的行政区划数据，自动识别新增区域、删除区域、名称变更及层级调整，并显示完整行政区划路径。
+          </p>
+        </div>
+      </section>
+
+      <!-- URL加载区域 -->
+      <section class="mb-8 animate-fadeIn">
+        <div class="bg-white rounded-xl card-shadow p-6">
+          <h2 class="text-lg font-bold text-dark mb-6 flex items-center">
+            <i class="fa fa-link text-primary mr-2"></i> 选择要对比的版本
+          </h2>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- 旧版本URL -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2"
+                >旧版本数据 (2.2023.0 - 扁平化结构)</label
+              >
+              <div class="relative">
+                <div
+                  class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
+                >
+                  <i class="fa fa-globe text-gray-400"></i>
+                </div>
+                <input
+                  type="text"
+                  id="url-old"
+                  class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+                  value="https://unpkg.com/zoningjs@2.2023.0/0.json"
+                  readonly
+                />
+              </div>
+            </div>
+
+            <!-- 新版本URL -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2"
+                >新版本数据 (3.2024.0 - 树形结构)</label
+              >
+              <div class="relative">
+                <div
+                  class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
+                >
+                  <i class="fa fa-globe text-gray-400"></i>
+                </div>
+                <input
+                  type="text"
+                  id="url-new"
+                  class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+                  value="https://unpkg.com/zoningjs@3.2024.0/0.json"
+                  readonly
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="text-center mb-8">
+        <button
+          id="analyze-button"
+          class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-lg shadow-lg hover:shadow-primary/20 transition-custom"
+        >
+          <i class="fa fa-line-chart mr-2"></i> 分析数据差异
+        </button>
+      </div>
+
+      <!-- 差异分析结果区域 (默认隐藏) -->
+      <section class="hidden animate-fadeIn" id="result-section">
+        <!-- 差异统计图表 -->
+        <div class="bg-white rounded-xl card-shadow p-6 mb-8">
+          <h2 class="text-lg font-bold text-dark mb-6 flex items-center">
+            <i class="fa fa-pie-chart text-primary mr-2"></i> 差异统计概览
+          </h2>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <canvas id="diff-chart" height="250"></canvas>
+            </div>
+            <div class="flex flex-col justify-center">
+              <div class="space-y-4">
+                <div class="flex items-center">
+                  <div class="w-4 h-4 rounded-full bg-danger mr-3"></div>
+                  <div>
+                    <p class="text-sm text-gray-500">删除的区域</p>
+                    <p class="text-xl font-bold" id="removed-count">0</p>
+                  </div>
+                </div>
+                <div class="flex items-center">
+                  <div class="w-4 h-4 rounded-full bg-secondary mr-3"></div>
+                  <div>
+                    <p class="text-sm text-gray-500">新增的区域</p>
+                    <p class="text-xl font-bold" id="added-count">0</p>
+                  </div>
+                </div>
+                <div class="flex items-center">
+                  <div class="w-4 h-4 rounded-full bg-warning mr-3"></div>
+                  <div>
+                    <p class="text-sm text-gray-500">名称变更</p>
+                    <p class="text-xl font-bold" id="name-changed-count">0</p>
+                  </div>
+                </div>
+                <div class="flex items-center">
+                  <div class="w-4 h-4 rounded-full bg-accent mr-3"></div>
+                  <div>
+                    <p class="text-sm text-gray-500">层级调整</p>
+                    <p class="text-xl font-bold" id="hierarchy-changed-count">
+                      0
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 差异分类列表 -->
+        <div class="grid grid-cols-1 gap-6">
+          <!-- 新增区域 -->
+          <div class="bg-white rounded-xl card-shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-base font-bold text-dark flex items-center">
+                <i class="fa fa-plus-circle text-secondary mr-2"></i> 新增区域
+                <span
+                  id="added-count-badge"
+                  class="bg-secondary/10 text-secondary text-xs font-medium px-2.5 py-0.5 rounded-full ml-2"
+                  >0</span
+                >
+              </h3>
+            </div>
+            <div class="tree-container" id="added-list">
+              <p class="text-gray-500 text-center py-6">暂无新增区域数据</p>
+            </div>
+          </div>
+
+          <!-- 删除区域 -->
+          <div class="bg-white rounded-xl card-shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-base font-bold text-dark flex items-center">
+                <i class="fa fa-minus-circle text-danger mr-2"></i> 删除区域
+                <span
+                  id="removed-count-badge"
+                  class="bg-danger/10 text-danger text-xs font-medium px-2.5 py-0.5 rounded-full ml-2"
+                  >0</span
+                >
+              </h3>
+            </div>
+            <div class="tree-container" id="removed-list">
+              <p class="text-gray-500 text-center py-6">暂无删除区域数据</p>
+            </div>
+          </div>
+
+          <!-- 名称变更 -->
+          <div class="bg-white rounded-xl card-shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-base font-bold text-dark flex items-center">
+                <i class="fa fa-font text-warning mr-2"></i> 名称变更
+                <span
+                  id="name-changed-count-badge"
+                  class="bg-warning/10 text-warning text-xs font-medium px-2.5 py-0.5 rounded-full ml-2"
+                  >0</span
+                >
+              </h3>
+            </div>
+            <div class="tree-container" id="name-changed-list">
+              <p class="text-gray-500 text-center py-6">暂无名称变更数据</p>
+            </div>
+          </div>
+
+          <!-- 层级调整 -->
+          <div class="bg-white rounded-xl card-shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-base font-bold text-dark flex items-center">
+                <i class="fa fa-sitemap text-accent mr-2"></i> 层级调整
+                <span
+                  id="hierarchy-changed-count-badge"
+                  class="bg-accent/10 text-accent text-xs font-medium px-2.5 py-0.5 rounded-full ml-2"
+                  >0</span
+                >
+              </h3>
+            </div>
+            <div class="tree-container" id="hierarchy-changed-list">
+              <p class="text-gray-500 text-center py-6">暂无层级调整数据</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-dark text-white py-6 mt-12">
+      <div class="container mx-auto px-4 text-center text-sm text-gray-400">
+        <p>© 2024 行政区划数据差异分析工具. 保留所有权利.</p>
+      </div>
+    </footer>
+
+    <script>
+      // 行政区划数据差异分析类
+      class AdminDivisionDiffAnalyzer {
+        constructor() {
+          this.data = {
+            "2.2023.0": [],
+            "3.2024.0": [],
+          };
+          this.index = {
+            "2.2023.0": {},
+            "3.2024.0": {},
+          };
+          this.diffResult = {
+            added: [],
+            removed: [],
+            nameChanged: [],
+            hierarchyChanged: [],
+          };
+        }
+
+        // 加载数据
+        loadData(version, data) {
+          try {
+            // 自动检测数据格式并转换
+            if (this._isFlatFormat(data)) {
+              // 处理扁平化格式 (2023版本)
+              this.data[version] = this._convertFlatData(data);
+            } else if (this._isTreeFormat(data)) {
+              // 处理树形格式 (2024版本)
+              this.data[version] = this._convertTreeData(data);
+            } else {
+              // 尝试深度查找数组
+              const arr = this._findArrayInObject(data);
+              if (arr) {
+                this.data[version] = arr;
+              } else {
+                throw new Error(
+                  `不支持的数据格式。请确保数据是扁平化数组或树形结构。`
+                );
+              }
+            }
+
+            // 构建ID索引（忽略末尾0）
+            const index = {};
+            this.data[version].forEach((item) => {
+              const normalizedId = this._normalizeId(item.id);
+              index[normalizedId] = item;
+            });
+
+            this.index[version] = index;
+
+            console.log(
+              `成功加载${version}版本数据，共${this.data[version].length}条记录`
+            );
+          } catch (error) {
+            console.error(`加载${version}版本数据失败:`, error);
+            throw error;
+          }
+        }
+
+        // 检测是否为扁平化格式
+        _isFlatFormat(data) {
+          return (
+            Array.isArray(data) &&
+            data.length > 0 &&
+            data[0].id &&
+            data[0].txt &&
+            data[0].pid
+          );
+        }
+
+        // 检测是否为树形格式
+        _isTreeFormat(data) {
+          return (
+            typeof data === "object" &&
+            data !== null &&
+            data.hasOwnProperty("0") &&
+            Array.isArray(data["0"])
+          );
+        }
+
+        // 转换扁平化数据
+        _convertFlatData(data) {
+          return data.map((item) => ({
+            id: item.id.toString(),
+            txt: item.txt,
+            pid: item.pid.toString(),
+            deep: item.deep || this._calculateDeep(item.id),
+            level: this._getLevelByDeep(item.deep),
+            fullPath: this._buildFullPath("2.2023.0", item.id.toString()),
+          }));
+        }
+
+        // 转换树形数据
+        _convertTreeData(data) {
+          const result = [];
+
+          // 处理顶层数据
+          if (data["0"] && Array.isArray(data["0"])) {
+            data["0"].forEach((item) => {
+              const id = item.c.toString();
+              result.push({
+                id: id,
+                txt: item.n,
+                pid: "0",
+                deep: 1,
+                level: "省级",
+                fullPath: this._buildFullPath("3.2024.0", id),
+              });
+
+              // 处理子级数据
+              this._processTreeChildren(data, id, result, 2, "3.2024.0");
+            });
+          }
+
+          return result;
+        }
+
+        // 递归处理树形子节点
+        _processTreeChildren(data, parentId, result, deep, version) {
+          if (data[parentId] && Array.isArray(data[parentId])) {
+            const level = this._getLevelByDeep(deep);
+
+            data[parentId].forEach((item) => {
+              const id = item.c.toString();
+              result.push({
+                id: id,
+                txt: item.n,
+                pid: parentId,
+                deep: deep,
+                level: level,
+                fullPath: this._buildFullPath(version, id),
+              });
+
+              // 继续处理下一级
+              this._processTreeChildren(data, id, result, deep + 1, version);
+            });
+          }
+        }
+
+        // 根据ID计算层级深度
+        _calculateDeep(id) {
+          const normalizedId = this._normalizeId(id);
+          if (normalizedId.length === 2) return 1; // 省级
+          if (normalizedId.length === 4) return 2; // 市级
+          if (normalizedId.length === 6) return 3; // 区县级
+          return 0; // 未知
+        }
+
+        // 根据深度获取层级名称
+        _getLevelByDeep(deep) {
+          const levels = {
+            1: "省级",
+            2: "市级",
+            3: "区/县级",
+          };
+          return levels[deep] || `层级 ${deep}`;
+        }
+
+        // 递归查找对象中的数组
+        _findArrayInObject(obj) {
+          if (Array.isArray(obj)) {
+            // 检查数组元素是否包含必要的行政区划属性
+            if (obj.length > 0 && obj[0].id && obj[0].txt) {
+              return obj;
+            }
+          }
+
+          if (typeof obj === "object" && obj !== null) {
+            for (const key in obj) {
+              const result = this._findArrayInObject(obj[key]);
+              if (result) {
+                return result;
+              }
+            }
+          }
+
+          return null;
+        }
+
+        // 移除ID末尾的0
+        _normalizeId(id) {
+          return id.replace(/0+$/, "");
+        }
+
+        // 构建完整行政区划路径
+        _buildFullPath(version, id) {
+          const path = [];
+          let currentId = id;
+
+          while (currentId !== "0") {
+            const normalizedId = this._normalizeId(currentId);
+            const item = this.index[version][normalizedId];
+            if (!item) break;
+
+            path.unshift(item.txt);
+            currentId = item.pid;
+          }
+
+          return path.join(" > ");
+        }
+
+        // 获取行政区划名称（新增功能）
+        getNameById(version, id) {
+          const normalizedId = this._normalizeId(id);
+          const item = this.index[version][normalizedId];
+          return item ? item.txt : "未知区域";
+        }
+
+        // 分析差异
+        analyzeDiff(version1 = "2.2023.0", version2 = "3.2024.0") {
+          const index1 = this.index[version1];
+          const index2 = this.index[version2];
+          const data1 = this.data[version1];
+          const data2 = this.data[version2];
+
+          console.log(
+            `开始分析差异: ${version1} (${data1.length}条) vs ${version2} (${data2.length}条)`
+          );
+
+          // 重置差异结果
+          this.diffResult = {
+            added: [],
+            removed: [],
+            nameChanged: [],
+            hierarchyChanged: [],
+          };
+
+          // 找出所有归一化后的ID
+          const allIds = new Set([
+            ...Object.keys(index1),
+            ...Object.keys(index2),
+          ]);
+
+          allIds.forEach((normalizedId) => {
+            const item1 = index1[normalizedId];
+            const item2 = index2[normalizedId];
+
+            // 处理新增区域
+            if (!item1 && item2) {
+              // 获取新增区域的具体名称
+              this.diffResult.added.push({
+                ...item2,
+                name: item2.txt,
+                fullPath: this._buildFullPath(version2, item2.id),
+              });
+              return;
+            }
+
+            // 处理删除区域
+            if (item1 && !item2) {
+              // 获取删除区域的具体名称
+              this.diffResult.removed.push({
+                ...item1,
+                name: item1.txt,
+                fullPath: this._buildFullPath(version1, item1.id),
+              });
+              return;
+            }
+
+            // 处理现有区域的差异
+            if (item1 && item2) {
+              this._analyzeExistingItem(item1, item2);
+            }
+          });
+
+          console.log(
+            `差异分析完成: 新增=${this.diffResult.added.length}, 删除=${this.diffResult.removed.length}, 名称变更=${this.diffResult.nameChanged.length}, 层级调整=${this.diffResult.hierarchyChanged.length}`
+          );
+          return this.diffResult;
+        }
+
+        // 分析现有区域的差异
+        _analyzeExistingItem(item1, item2) {
+          // 名称变更
+          if (item1.txt !== item2.txt) {
+            this.diffResult.nameChanged.push({
+              fullPath: this.getNameById("2.2023.0", item1.pid),
+              oldName: item1.txt,
+              newName: item2.txt,
+              oldLevel: item1.level,
+              newLevel: item2.level,
+              id: item2.id,
+              // 获取父级名称
+              oldParentName: this.getNameById("2.2023.0", item1.pid),
+              newParentName: this.getNameById("3.2024.0", item2.pid),
+            });
+          }
+
+          // 层级变更判断（使用归一化后的pid和深度）
+          const normalizedPid1 = this._normalizeId(item1.pid);
+          const normalizedPid2 = this._normalizeId(item2.pid);
+          const hasHierarchyChange =
+            normalizedPid1 !== normalizedPid2 || item1.deep !== item2.deep;
+
+          if (hasHierarchyChange) {
+            this.diffResult.hierarchyChanged.push({
+              fullPath: item2.fullPath,
+              oldPid: item1.pid,
+              newPid: item2.pid,
+              oldNormalizedPid: normalizedPid1,
+              newNormalizedPid: normalizedPid2,
+              oldDeep: item1.deep,
+              newDeep: item2.deep,
+              oldLevel: item1.level,
+              newLevel: item2.level,
+              id: item2.id,
+              // 获取父级名称
+              oldParentName: this.getNameById("2.2023.0", item1.pid),
+              newParentName: this.getNameById("3.2024.0", item2.pid),
+            });
+          }
+        }
+      }
+
+      // 分析按钮点击事件
+      document
+        .getElementById("analyze-button")
+        .addEventListener("click", async function () {
+          this.disabled = true;
+          this.innerHTML =
+            '<i class="fa fa-spinner fa-spin mr-2"></i> 正在分析数据...';
+
+          try {
+            // 获取URL
+            const urlOld = document.getElementById("url-old").value;
+            const urlNew = document.getElementById("url-new").value;
+
+            // 加载数据
+            const [responseOld, responseNew] = await Promise.all([
+              fetch(urlOld),
+              fetch(urlNew),
+            ]);
+
+            // 检查响应状态
+            if (!responseOld.ok) {
+              throw new Error(`无法获取旧版本数据: ${responseOld.statusText}`);
+            }
+
+            if (!responseNew.ok) {
+              throw new Error(`无法获取新版本数据: ${responseNew.statusText}`);
+            }
+
+            // 解析JSON
+            const [dataOld, dataNew] = await Promise.all([
+              responseOld.json(),
+              responseNew.json(),
+            ]);
+
+            // 初始化分析器并加载数据
+            const analyzer = new AdminDivisionDiffAnalyzer();
+
+            console.log("旧版本数据结构:", getDataTypeDescription(dataOld));
+            console.log("新版本数据结构:", getDataTypeDescription(dataNew));
+
+            analyzer.loadData("2.2023.0", dataOld);
+            analyzer.loadData("3.2024.0", dataNew);
+
+            // 分析差异
+            const diffResult = analyzer.analyzeDiff();
+
+            // 显示结果区域
+            const resultSection = document.getElementById("result-section");
+            resultSection.classList.remove("hidden");
+
+            // 滚动到结果区域
+            resultSection.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+
+            // 渲染差异统计图表
+            renderDiffChart(diffResult);
+
+            // 渲染差异列表
+            renderDiffLists(diffResult, analyzer);
+          } catch (error) {
+            alert(`分析过程中出错: ${error.message}`);
+            console.error(error);
+          } finally {
+            this.disabled = false;
+            this.innerHTML =
+              '<i class="fa fa-line-chart mr-2"></i> 分析数据差异';
+          }
+        });
+
+      // 获取数据类型描述
+      function getDataTypeDescription(data) {
+        if (Array.isArray(data)) {
+          return `数组 (长度: ${data.length})`;
+        } else if (typeof data === "object" && data !== null) {
+          return `对象 (属性: ${Object.keys(data).join(", ")})`;
+        } else {
+          return typeof data;
+        }
+      }
+
+      // 渲染差异统计图表
+      function renderDiffChart(diffResult) {
+        const ctx = document.getElementById("diff-chart").getContext("2d");
+
+        // 准备图表数据
+        const labels = ["新增区域", "删除区域", "名称变更", "层级调整"];
+        const data = [
+          diffResult.added.length,
+          diffResult.removed.length,
+          diffResult.nameChanged.length,
+          diffResult.hierarchyChanged.length,
+        ];
+        const colors = [
+          "#10B981", // 新增 - 绿色
+          "#EF4444", // 删除 - 红色
+          "#F59E0B", // 名称变更 - 黄色
+          "#8B5CF6", // 层级调整 - 紫色
+        ];
+
+        // 销毁旧图表（如果存在）
+        if (window.diffChart) {
+          window.diffChart.destroy();
+        }
+
+        // 创建新图表
+        window.diffChart = new Chart(ctx, {
+          type: "doughnut",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 0,
+                hoverOffset: 4,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "right",
+                labels: {
+                  boxWidth: 12,
+                  padding: 15,
+                  font: {
+                    size: 11,
+                  },
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    const label = context.label || "";
+                    const value = context.raw || 0;
+                    return `${label}: ${value} 处`;
+                  },
+                },
+              },
+            },
+            cutout: "65%",
+          },
+        });
+
+        // 更新计数
+        document.getElementById("added-count").textContent =
+          diffResult.added.length;
+        document.getElementById("removed-count").textContent =
+          diffResult.removed.length;
+        document.getElementById("name-changed-count").textContent =
+          diffResult.nameChanged.length;
+        document.getElementById("hierarchy-changed-count").textContent =
+          diffResult.hierarchyChanged.length;
+
+        document.getElementById("added-count-badge").textContent =
+          diffResult.added.length;
+        document.getElementById("removed-count-badge").textContent =
+          diffResult.removed.length;
+        document.getElementById("name-changed-count-badge").textContent =
+          diffResult.nameChanged.length;
+        document.getElementById("hierarchy-changed-count-badge").textContent =
+          diffResult.hierarchyChanged.length;
+      }
+
+      // 渲染差异列表
+      function renderDiffLists(diffResult, analyzer) {
+        const listIds = [
+          "added-list",
+          "removed-list",
+          "name-changed-list",
+          "hierarchy-changed-list",
+        ];
+        const diffTypes = [
+          "added",
+          "removed",
+          "nameChanged",
+          "hierarchyChanged",
+        ];
+
+        listIds.forEach((listId, index) => {
+          const list = document.getElementById(listId);
+          const diffType = diffTypes[index];
+          const items = diffResult[diffType];
+
+          if (items.length > 0) {
+            list.innerHTML = "";
+            const treeData = buildTreeData(items);
+            const treeHtml = buildTreeHtml(treeData, diffType);
+            list.innerHTML = treeHtml;
+            setupTreeEvents(list);
+          } else {
+            list.innerHTML =
+              '<p class="text-gray-500 text-center py-6">暂无数据</p>';
+          }
+        });
+      }
+
+      // 构建树形数据
+      function buildTreeData(items) {
+        const tree = {};
+
+        items.forEach((item) => {
+          const path = item.fullPath.split(" > ");
+          let currentNode = tree;
+
+          path.forEach((segment, index) => {
+            if (!currentNode[segment]) {
+              currentNode[segment] = { children: {}, item: null };
+            }
+
+            if (index === path.length - 1) {
+              currentNode[segment].item = item;
+            }
+
+            currentNode = currentNode[segment].children;
+          });
+        });
+
+        return tree;
+      }
+
+      // 构建树形 HTML
+      function buildTreeHtml(treeData, diffType) {
+        let html = "";
+
+        for (const key in treeData) {
+          const node = treeData[key];
+          const hasChildren = Object.keys(node.children).length > 0;
+          const item = node.item;
+
+          if (hasChildren) {
+            html += `<div class="tree-node">${key}</div>`;
+            html += `<div class="tree-children">`;
+            html += buildTreeHtml(node.children, diffType);
+            html += `</div>`;
+          } else if (item) {
+            html += `<div class="tag pl-2 pr-3 py-1 bg-${getBgColor(
+              diffType
+            )}-50 rounded-lg border border-${getColor(diffType)}">`;
+            if (diffType === "added" || diffType === "removed") {
+              html += `
+              <div>
+                <h4 class="font-medium text-dark">
+                  <span class="">${item.name}</span>
+                  <span class="text-xs text-gray-600">${item.id}</span>
+                </h4>
+                <p class="text-xs text-gray-600">${item.fullPath}</p>
+              </div>
+            `;
+            } else if (diffType === "nameChanged") {
+              console.log(diffType);
+              html += `
+              <div>
+                <h4 class="font-medium text-dark">
+                  ${item.fullPath}
+                  <span class="text-xs text-gray-600">${item.id}</span>
+                </h4>
+              </div>
+              <div class="mt-2 space-y-1">
+                <div class="flex items-center">
+                  <span class="text-sm text-gray-500 mr-2">旧名称:</span>
+                  <span class="text-sm font-medium text-gray-500">${
+                    item.oldName
+                  }</span>
+                </div>
+                <div class="flex items-center">
+                  <span class="text-sm text-gray-500 mr-2">新名称:</span>
+                  <span class="text-sm font-medium text-gray-800">${
+                    item.newName
+                  }</span>
+                </div>
+              </div>
+            `;
+            } else if (diffType === "hierarchyChanged") {
+              html += `
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium text-dark">${item.fullPath}</h4>
+                  <p class="text-sm text-gray-600">ID: ${item.id}</p>
+                </div>
+              </div>
+              <div class="mt-2 space-y-2">
+                <div class="flex items-center">
+                  <span class="text-sm text-gray-500 mr-2">原层级:</span>
+                  <span class="text-sm font-medium text-gray-800">${
+                    item.oldLevel
+                  }</span>
+                </div>
+                <div class="flex items-center">
+                  <span class="text-sm text-gray-500 mr-2">新层级:</span>
+                  <span class="text-sm font-medium text-gradient">${
+                    item.newLevel
+                  }</span>
+                </div>
+                ${
+                  item.oldDeep !== item.newDeep
+                    ? `<div class="flex items-center">
+                    <span class="text-sm text-gray-500 mr-2">层级深度:</span>
+                    <span class="text-sm font-medium text-gray-800">${item.oldDeep}</span>
+                    <span class="text-sm text-gray-500 mx-1">→</span>
+                    <span class="text-sm font-medium text-gradient">${item.newDeep}</span>
+                  </div>`
+                    : ""
+                }
+              </div>
+            `;
+            }
+            html += `</div>`;
+          }
+        }
+
+        return html;
+      }
+
+      // 获取颜色
+      function getColor(diffType) {
+        switch (diffType) {
+          case "added":
+            return "secondary";
+          case "removed":
+            return "danger";
+          case "nameChanged":
+            return "warning";
+          case "hierarchyChanged":
+            return "accent";
+          default:
+            return "";
+        }
+      }
+
+      // 获取背景颜色
+      function getBgColor(diffType) {
+        switch (diffType) {
+          case "added":
+            return "blue";
+          case "removed":
+            return "red";
+          case "nameChanged":
+            return "yellow";
+          case "hierarchyChanged":
+            return "purple";
+          default:
+            return "";
+        }
+      }
+
+      // 设置树形事件
+      function setupTreeEvents(treeContainer) {
+        const treeNodes = treeContainer.querySelectorAll(".tree-node");
+
+        treeNodes.forEach((node) => {
+          node.addEventListener("click", function () {
+            const children = this.nextElementSibling;
+            this.classList.toggle("open");
+            children.classList.toggle("open");
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
